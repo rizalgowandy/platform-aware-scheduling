@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ '**' ]
 
+permissions:
+  contents: read
+
 jobs:
 
   static-analysis:
@@ -39,3 +42,9 @@ jobs:
       runson: self-hosted-kind
       cleanup: true
       isLocal: "true"
+      
+  trivy-scan-local:
+    uses: ./.github/workflows/trivy-scan.yaml
+    if: ( !contains(github.repository, '/platform-aware-scheduling') && github.event_name == 'push' )
+    with:
+      runson: self-hosted

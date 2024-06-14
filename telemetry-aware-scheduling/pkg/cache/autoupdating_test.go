@@ -1,3 +1,6 @@
+// Copyright (C) 2022 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+
 package cache
 
 import (
@@ -121,11 +124,13 @@ func TestNodeMetricsCache_ReadPolicy(t *testing.T) {
 	}{
 		{"existing policy", MockSelfUpdatingCache(), args{mockPolicy}, mockPolicy, false},
 		{"non existing policy", MockSelfUpdatingCache(), args{mockPolicy}, mockPolicy2, true},
+		{"empty policy name", MockSelfUpdatingCache(), args{mockInvalidPolicyName1}, mockInvalidPolicyName1, true},
+		{"single character policy name", MockSelfUpdatingCache(), args{mockInvalidPolicyName2}, mockInvalidPolicyName2, false},
 	}
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			err1 := tt.n.WritePolicy(tt.args.policy.Namespace, tt.args.policy.Name, mockPolicy)
+			err1 := tt.n.WritePolicy(tt.args.policy.Namespace, tt.args.policy.Name, tt.args.policy)
 			got, err2 := tt.n.ReadPolicy(tt.want.Namespace, tt.want.Name)
 			if err1 != nil || err2 != nil {
 				if !tt.wantErr {
@@ -198,6 +203,7 @@ func TestNodeMetricsCache_WriteMetric(t *testing.T) {
 		{"false name queried", MockEmptySelfUpdatingCache(), "memory_free", args{"memoryFREE"}, true},
 		{"number queried", MockEmptySelfUpdatingCache(), "1", args{"memoryFREE"}, true},
 		{"add existing metric", MockEmptySelfUpdatingCache(), "dummyMetric1", args{"dummyMetric1"}, false},
+		{"empty metric name", MockEmptySelfUpdatingCache(), "", args{""}, true},
 	}
 	for _, tt := range tests {
 		tt := tt

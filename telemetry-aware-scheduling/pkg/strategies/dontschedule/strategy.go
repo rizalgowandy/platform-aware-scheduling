@@ -1,3 +1,6 @@
+// Copyright (C) 2022 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+
 // This is a semi-implemented strategy created to type dontschedule as a strategy.
 
 package dontschedule
@@ -44,13 +47,13 @@ func (d *Strategy) Violated(cache cache.Reader) map[string]interface{} {
 
 				if d.LogicalOperator == "allOf" {
 					if nodeMetricViol[nodeName] == len(d.Rules) {
-						msg := fmt.Sprint(nodeName + " violating all the rules in " + d.StrategyType() + " strategy")
+						msg := nodeName + " violating all the rules in " + d.StrategyType() + " strategy"
 						klog.V(l2).InfoS(msg, "component", "controller")
 
 						violatingNodes[nodeName] = nil
 					}
 				} else {
-					msg := fmt.Sprint(nodeName + " violating " + d.PolicyName + ": " + ruleToString(rule))
+					msg := nodeName + " violating " + d.PolicyName + ": " + ruleToString(rule)
 					klog.V(l2).InfoS(msg, "component", "controller")
 
 					violatingNodes[nodeName] = nil
@@ -63,7 +66,7 @@ func (d *Strategy) Violated(cache cache.Reader) map[string]interface{} {
 }
 
 // Enforce unimplemented for dontschedule.
-func (d *Strategy) Enforce(enforcer *core.MetricEnforcer, cache cache.Reader) (int, error) {
+func (d *Strategy) Enforce(_ *core.MetricEnforcer, _ cache.Reader) (int, error) {
 	return 0, nil
 }
 

@@ -1,10 +1,16 @@
+// Copyright (C) 2022 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
 	"flag"
 	"os"
 
+	"k8s.io/client-go/util/homedir"
+
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -32,7 +38,7 @@ func main() {
 	var kubeConfig, port, certFile, keyFile, caFile, syncPeriod string
 
 	klog.InitFlags(nil)
-	flag.StringVar(&kubeConfig, "kubeConfig", "/root/.kube/config", "location of kubernetes config file")
+	flag.StringVar(&kubeConfig, "kubeConfig", filepath.Join(homedir.HomeDir(), ".kube", "config"), "location of kubernetes config file")
 	flag.StringVar(&port, "port", "9001", "port on which the scheduler extender will listen")
 	flag.StringVar(&certFile, "cert", "/etc/kubernetes/pki/ca.crt", "cert file extender will use for authentication")
 	flag.StringVar(&keyFile, "key", "/etc/kubernetes/pki/ca.key", "key file extender will use for authentication")

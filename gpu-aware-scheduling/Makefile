@@ -2,13 +2,26 @@ ifneq ($(TAG),)
 IMAGE_TAG=:$(TAG)
 endif
 
-GOLICENSES_VERSION?=v1.2.1
+GO_VERSION = 1.21
+GOLICENSES_VERSION?=v1.6.0
+BUILD_OUTPUT_DIR?=./bin
 
 ifneq ("$(wildcard licenses/)","")
 LOCAL_LICENSES=TRUE
 endif
 
-.PHONY: test all build image release-image format clean licenses mock e2e lint
+GOVERSION=$(shell go version | sed 's/^[^0-9]*//' | cut -d' ' -f1)
+BUILDDATE=$(shell date "+%Y%m%d-%T")
+VERSION=$(shell git describe --tags --long --match gpu-aware-scheduling/v*)
+
+LDFLAGS = \
+-s -w \
+-X main.version=$(VERSION) \
+-X main.buildDate=$(BUILDDATE) \
+-X main.goVersion=$(GOVERSION)
+
+
+.PHONY: test all build image release-image format clean licenses mock e2e lint update-baseimage
 
 test:
 	go test ./...  -v *_test.go
@@ -19,17 +32,21 @@ lint: format build
 	golangci-lint run
 
 build:
-	CGO_ENABLED=0 GO111MODULE=on go build -ldflags="-s -w" -o ./bin/extender ./cmd/gas-scheduler-extender
+	CGO_ENABLED=0 GO111MODULE=on go build -ldflags="$(LDFLAGS)" -o $(BUILD_OUTPUT_DIR)/extender ./cmd/gas-scheduler-extender
+
+update-baseimage:
+	docker pull golang:$(GO_VERSION)
 
 #note: you can speed up subsequent docker builds by doing "go mod vendor"
 #note: you can further speed up subsequent docker builds by doing "make licenses"
-image:
-	docker build --build-arg GOLICENSES_VERSION=$(GOLICENSES_VERSION) --build-arg LOCAL_LICENSES=$(LOCAL_LICENSES) \
-	-f deploy/images/Dockerfile_gpu-extender ../ -t $(IMAGE_PATH)gpu-extender$(IMAGE_TAG)
+image: update-baseimage
+	docker build --build-arg GOLICENSES_VERSION=$(GOLICENSES_VERSION) \
+	--build-arg LOCAL_LICENSES=$(LOCAL_LICENSES) --build-arg GO_VERSION=$(GO_VERSION) \
+	-f deploy/images/Dockerfile ../ -t $(IMAGE_PATH)gpu-extender$(IMAGE_TAG)
 
-release-image: clean
-	docker build --build-arg GOLICENSES_VERSION=$(GOLICENSES_IN_GO_MOD) -f deploy/images/Dockerfile_gpu-extender ../ \
-	-t $(IMAGE_PATH)gpu-extender$(IMAGE_TAG)
+release-image: clean update-baseimage
+	docker build --build-arg GOLICENSES_VERSION=$(GOLICENSES_VERSION) --build-arg GO_VERSION=$(GO_VERSION) \
+	-f deploy/images/Dockerfile ../ -t $(IMAGE_PATH)gpu-extender$(IMAGE_TAG)
 
 format:
 	gofmt -w -s .

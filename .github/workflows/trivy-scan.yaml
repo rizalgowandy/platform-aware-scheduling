@@ -1,0 +1,66 @@
+name: trivy-scan
+on:
+  workflow_call:
+    inputs:
+      runsOn:
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+      trivyVersion:
+        required: false
+        type: string
+        default: v0.48.0
+
+permissions:
+  contents: read
+
+jobs:  
+  vulnerability-scanners:
+    runs-on: ${{ inputs.runsOn }}
+    strategy:
+      matrix:
+        workingdir: [extender, telemetry-aware-scheduling, gpu-aware-scheduling]
+    name: vulnerability-scanners
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v3
+      - name: install Trivy
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin ${{ inputs.trivyVersion }}
+      - name: trivy fs $DIR  
+        run: |
+          cd ./${{ matrix.workingdir }}
+          echo "Running trivy fs for ${{ matrix.workingdir }} "
+          trivy fs ./
+          cd ..
+        shell: bash     
+      - name: trivy config $DIR
+        run: |
+          cd ./${{ matrix.workingdir }}
+          echo "Running trivy config for ${{ matrix.workingdir }}, looking for CRITICAL or HIGH severity items..."
+          trivy config ./ --severity=CRITICAL
+          output=$(trivy config ./ --severity=CRITICAL)
+          if [ -n "${output}" ]; then
+            echo "::warning::severities CRITICAL issues spotted by Trivy in ${{ matrix.workingdir }}"
+            exit 1
+          else
+            echo "trivy config ./ --severity=CRITICAL ran successfully"
+          fi
+          # look for HIGH severity issues
+          trivy config ./ --severity=HIGH
+          output=$(trivy config ./ --severity=HIGH)
+          if [ -n "${output}" ]; then
+            echo "::warning::severities HIGH issues spotted by Trivy in ${{ matrix.workingdir }}"
+            exit 1
+          else
+            echo "trivy config ./ --severity=HIGH ran successfully"
+          fi
+
+          cd ..
+        shell: bash     
+      - name: trivy fs --all packages 
+        run: |
+          cd ./${{ matrix.workingdir }}
+          echo "Running trivy fs --list-all-pkgs for ${{ matrix.workingdir }} "
+          trivy fs --list-all-pkgs  --format json .
+          cd ..
+        shell: bash

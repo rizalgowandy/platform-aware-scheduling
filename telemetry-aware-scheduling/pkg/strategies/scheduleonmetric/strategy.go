@@ -1,3 +1,6 @@
+// Copyright (C) 2022 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+
 // This is a semi-implemented strategy created to type scheduleonmetric as a strategy.
 
 package scheduleonmetric
@@ -17,14 +20,14 @@ const (
 )
 
 // Violated is unimplemented for this strategy.
-func (d *Strategy) Violated(cache cache.Reader) map[string]interface{} {
+func (d *Strategy) Violated(_ cache.Reader) map[string]interface{} {
 	violatingNodes := map[string]interface{}{}
 
 	return violatingNodes
 }
 
 // Enforce is unimplemented.
-func (d *Strategy) Enforce(enforcer *core.MetricEnforcer, cache cache.Reader) (int, error) {
+func (d *Strategy) Enforce(_ *core.MetricEnforcer, _ cache.Reader) (int, error) {
 	return 0, nil
 }
 

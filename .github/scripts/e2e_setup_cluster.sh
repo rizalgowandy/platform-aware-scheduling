@@ -15,7 +15,9 @@ CNIS_NAME="cni-plugins"
 # running the latest available image my default, unless instructed to
 KIND_IMAGE="kindest/node:v1.24.0@sha256:0866296e693efe1fed79d5e6c7af8df71fc73ae45e3679af05342239cdc5bc8e"
 [ -n "$1" ] && KIND_IMAGE=$1
-
+SCHEDULER_VERSION=""
+KUBE_SCHEDULER_API_VERSION=""
+TAS_DEPLOYMENT_FILE="${root}/telemetry-aware-scheduling/deploy/tas-deployment.yaml"
 # private registry set-up variables
 CHANGE_MIRROR_REPO="false"
 [ -n "$2" ] && CHANGE_MIRROR_REPO=$2
@@ -26,6 +28,41 @@ KIND_SET_UP_CONFIG_TEMPLATE="${root}/.github/scripts/kind/config-template.yaml"
 KIND_SET_UP_CONFIG_FILE="${root}/.github/scripts/kind/config.yaml"
 UBUNTU_CERTS_DIR="/usr/local/share/ca-certificates/"
 
+get_scheduler_version() {
+  [ -z "${KIND_IMAGE}" ] && echo "### No image SHA provided for Kind: $KIND_IMAGE. Exit..." && exit 1
+  scheduler_image_version=$(echo "$KIND_IMAGE" | cut -d "." -f 2 )
+  [ -z "${scheduler_image_version}" ] && echo "### Unable to determine K8s scheduler version from $KIND_IMAGE, got $scheduler_image_version. Exit..." && exit 1
+
+  SCHEDULER_VERSION=$scheduler_image_version
+}
+
+get_kube_scheduler_api_version() {
+  [ -z "${SCHEDULER_VERSION}" ] && echo "### UEmpty value for K8s scheduler version: $SCHEDULER_VERSION. Exit..." && exit 1
+
+  scheduler_image_version_19=19
+  scheduler_image_version_22=22
+  scheduler_image_version_25=25
+  scheduler_config_api_versions_v1beta1="v1beta1"
+  scheduler_config_api_versions_v1beta2="v1beta2"
+  scheduler_config_api_versions_v1="v1"
+
+  currentKubeSchedulerApiVersion=""
+  if [ "$SCHEDULER_VERSION" -lt $scheduler_image_version_19  ]; then
+    echo "E2E tests will not execute for K8s version older than $scheduler_image_version_19. Exit..."
+    exit 1
+  elif [  "$SCHEDULER_VERSION" -ge $scheduler_image_version_19 ] && [ "$SCHEDULER_VERSION" -lt $scheduler_image_version_22 ]; then
+    currentKubeSchedulerApiVersion=$scheduler_config_api_versions_v1beta1
+  elif [  "$SCHEDULER_VERSION" -ge $scheduler_image_version_22 ] && [ "$SCHEDULER_VERSION" -lt $scheduler_image_version_25 ]; then
+    currentKubeSchedulerApiVersion=$scheduler_config_api_versions_v1beta2
+  else
+    currentKubeSchedulerApiVersion=$scheduler_config_api_versions_v1
+  fi
+
+  [ -z "${currentKubeSchedulerApiVersion}" ] && echo "Invalid API version for Kube Scheduler Configuration, got: $currentKubeSchedulerApiVersion. Exit..." && exit 1
+
+  KUBE_SCHEDULER_API_VERSION=$currentKubeSchedulerApiVersion
+}
+
 # create cluster CA and policy for Kubernetes Scheduler
 # CA cert & key along with will be mounted to control plane
 # path /etc/kubernetes/pki. Kubeadm will utilise generated CA cert/key as root
@@ -33,6 +70,8 @@ UBUNTU_CERTS_DIR="/usr/local/share/ca-certificates/"
 generate_k8_scheduler_config_data() {
   mkdir -p "${TMP_DIR}"
   mount_dir="$(mktemp -q -p "${TMP_DIR}" -d -t tas-e2e-k8-XXXXXXXX)"
+  [ -z "${KUBE_SCHEDULER_API_VERSION}" ] && echo "Invalid API version for Kube Scheduler Configuration, got: $KUBE_SCHEDULER_API_VERSION. Exit..." && exit 1
+  sed -i "s/XVERSIONX/$currentKubeSchedulerApiVersion/g" "${K8_ADDITIONS_PATH}/policy.yaml"  
   cp "${K8_ADDITIONS_PATH}/policy.yaml" "${mount_dir}/"
 }
 
@@ -139,8 +178,24 @@ check_requirements() {
   done
 }
 
+set_node_affinity_and_tolerations() {
+  scheduler_image_version_24=24
+  [ -z "${SCHEDULER_VERSION}" ] && echo "### Unable to get K8s scheduler value, got $SCHEDULER_VERSION. Exit..." && exit 1
+  if [ "$SCHEDULER_VERSION" -lt $scheduler_image_version_24  ]; then
+      sed "s/control-plane/master/g" "$TAS_DEPLOYMENT_FILE" -i
+  elif [ "$SCHEDULER_VERSION" -eq $scheduler_image_version_24  ]; then
+    # add master toleration as it's needed for K8s v1.24
+    sed -e "/    tolerations:/a\\
+      - key: node-role.kubernetes.io/master\n        operator: Exists" "$TAS_DEPLOYMENT_FILE" -i
+  fi
+}
+
 echo "## checking requirements"
 check_requirements
+echo "## fetch K8s Scheduler version"
+get_scheduler_version
+echo "## fetch K8s KubeSchedulerAPI version"
+get_kube_scheduler_api_version
 # generate K8 API server CA key/cert and supporting files for mTLS with NRI
 echo "## generating K8s scheduler config"
 generate_k8_scheduler_config_data
@@ -192,7 +247,8 @@ mkdir "${mount_dir}/certs"
 docker cp kind-control-plane:/etc/kubernetes/pki/ca.crt "${mount_dir}/certs/client.crt"
 docker cp kind-control-plane:/etc/kubernetes/pki/ca.key "${mount_dir}/certs/client.key"
 
-
-kubectl create secret tls extender-secret --cert "${mount_dir}/certs/client.crt" --key "${mount_dir}/certs/client.key"
-sed "s/intel\/telemetry-aware-scheduling/tasextender/g" "${root}/telemetry-aware-scheduling/deploy/tas-deployment.yaml" -i
+kubectl create namespace telemetry-aware-scheduling
+kubectl create secret tls extender-secret --cert "${mount_dir}/certs/client.crt" --key "${mount_dir}/certs/client.key" -n telemetry-aware-scheduling
+sed "s/intel\/telemetry-aware-scheduling.*$/tasextender/g" "${root}/telemetry-aware-scheduling/deploy/tas-deployment.yaml" -i
+set_node_affinity_and_tolerations
 kubectl apply -f "${root}/telemetry-aware-scheduling/deploy/"

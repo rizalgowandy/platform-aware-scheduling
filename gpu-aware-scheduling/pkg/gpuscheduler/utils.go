@@ -1,3 +1,6 @@
+// Copyright (C) 2022 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+
 package gpuscheduler
 
 import (
@@ -22,6 +25,7 @@ const (
 	desiredIntBits    = 16
 	regexDesiredCount = 3
 	regexXeLinkCount  = 5
+	labelControlChar  = "Z"
 )
 
 // Globals for compiled regexps. No other global types here!
@@ -30,26 +34,29 @@ var (
 	xeLinkReg   = regexp.MustCompile(regexXeLink)
 )
 
-type DisabledTilesMap map[string][]int
-type DescheduledTilesMap map[string][]int
-type PreferredTilesMap map[string][]int
+type (
+	DisabledTilesMap    map[string][]int
+	DescheduledTilesMap map[string][]int
+	PreferredTilesMap   map[string][]int
+)
 
 // Return all resources requests and samegpuSearchmap indicating which resourceRequests
 // should be counted together. samegpuSearchmap is same length as samegpuContainerNames arg,
 // Key is index of allResource item, value is true if container was listed in same-gpu annotation.
 func containerRequests(pod *v1.Pod, samegpuContainerNames map[string]bool) (
-	map[int]bool, []resourceMap) {
+	map[int]bool, []resourceMap,
+) {
 	samegpuSearchMap := map[int]bool{}
 	allResources := []resourceMap{}
 
 	for idx, container := range pod.Spec.Containers {
-		rm := resourceMap{}
+		resMap := resourceMap{}
 
 		for name, quantity := range container.Resources.Requests {
 			resourceName := name.String()
 			if strings.HasPrefix(resourceName, gpuPrefix) {
 				value, _ := quantity.AsInt64()
-				rm[resourceName] = value
+				resMap[resourceName] = value
 			}
 		}
 
@@ -57,7 +64,7 @@ func containerRequests(pod *v1.Pod, samegpuContainerNames map[string]bool) (
 			samegpuSearchMap[idx] = true
 		}
 
-		allResources = append(allResources, rm)
+		allResources = append(allResources, resMap)
 	}
 
 	return samegpuSearchMap, allResources
@@ -68,7 +75,7 @@ func containerRequests(pod *v1.Pod, samegpuContainerNames map[string]bool) (
 func addPCIGroupGPUs(node *v1.Node, card string, cards []string) []string {
 	pciGroupGPUNums := getPCIGroup(node, card)
 	for _, gpuNum := range pciGroupGPUNums {
-		groupedCard := "card" + gpuNum
+		groupedCard := cardPrefix + gpuNum
 		if found := containsString(cards, groupedCard); !found {
 			cards = append(cards, groupedCard)
 		}
@@ -77,26 +84,27 @@ func addPCIGroupGPUs(node *v1.Node, card string, cards []string) []string {
 	return cards
 }
 
+func extractCardAndTile(cardTileCombo string) (string, int, error) {
+	card := ""
+	tile := -1
+
+	values := cardTileReg.FindStringSubmatch(cardTileCombo)
+	if len(values) != regexDesiredCount {
+		return card, tile, errExtractFail
+	}
+
+	card = cardPrefix + values[1]
+	tile, _ = strconv.Atoi(values[2])
+
+	return card, tile, nil
+}
+
 func createTileMapping(labels map[string]string) (
-	DisabledTilesMap, DescheduledTilesMap, PreferredTilesMap) {
+	DisabledTilesMap, DescheduledTilesMap, PreferredTilesMap,
+) {
 	disabled := DisabledTilesMap{}
 	descheduled := DescheduledTilesMap{}
 	preferred := PreferredTilesMap{}
-
-	extractCardAndTile := func(cardTileCombo string) (card string, tile int, err error) {
-		card = ""
-		tile = -1
-
-		values := cardTileReg.FindStringSubmatch(cardTileCombo)
-		if len(values) != regexDesiredCount {
-			return card, tile, errExtractFail
-		}
-
-		card = "card" + values[1]
-		tile, _ = strconv.Atoi(values[2])
-
-		return card, tile, nil
-	}
 
 	for label, value := range labels {
 		stripped, ok := labelWithoutTASNS(label)
@@ -158,7 +166,8 @@ func createDisabledTileMapping(labels map[string]string) map[string][]int {
 
 // creates two card to tile-index maps where first is disabled and second is preferred mapping.
 func createDisabledAndPreferredTileMapping(labels map[string]string) (
-	DisabledTilesMap, PreferredTilesMap) {
+	DisabledTilesMap, PreferredTilesMap,
+) {
 	dis, des, pref := createTileMapping(labels)
 
 	combineMappings(des, dis)
@@ -200,7 +209,7 @@ func labelWithoutTASNS(label string) (string, bool) {
 func isGPUInPCIGroup(gpuName, pciGroupGPUName string, node *v1.Node) bool {
 	gpuNums := getPCIGroup(node, pciGroupGPUName)
 	for _, gpuNum := range gpuNums {
-		if gpuName == "card"+gpuNum {
+		if gpuName == cardPrefix+gpuNum {
 			return true
 		}
 	}
@@ -210,14 +219,22 @@ func isGPUInPCIGroup(gpuName, pciGroupGPUName string, node *v1.Node) bool {
 
 // concatenateSplitLabel returns the given label value and concatenates any
 // additional values for label names with a running number postfix starting with "2".
+// Subsequent values should start with the control character 'Z'.
 func concatenateSplitLabel(node *v1.Node, labelName string) string {
 	postFix := 2
 	value := node.Labels[labelName]
 
-	for continuingLabelValue, ok := node.Labels[labelName+strconv.Itoa(postFix)]; ok; {
-		value += continuingLabelValue
+	for continuingLabelValue, ok1 := node.Labels[labelName+strconv.Itoa(postFix)]; ok1; {
+		if !strings.HasPrefix(continuingLabelValue, labelControlChar) {
+			klog.Warningf("concatenated chuck has invalid prefix: %s", continuingLabelValue[:len(labelControlChar)])
+
+			return ""
+		}
+
+		value += continuingLabelValue[len(labelControlChar):]
+
 		postFix++
-		continuingLabelValue, ok = node.Labels[labelName+strconv.Itoa(postFix)]
+		continuingLabelValue, ok1 = node.Labels[labelName+strconv.Itoa(postFix)]
 	}
 
 	return value
@@ -230,7 +247,7 @@ func getPCIGroup(node *v1.Node, gpuName string) []string {
 		for _, group := range slicedGroups {
 			gpuNums := strings.Split(group, ".")
 			for _, gpuNum := range gpuNums {
-				if "card"+gpuNum == gpuName {
+				if cardPrefix+gpuNum == gpuName {
 					return gpuNums
 				}
 			}
@@ -255,10 +272,12 @@ func hasGPUCapacity(node *v1.Node) bool {
 		return false
 	}
 
-	if quantity, ok := node.Status.Capacity[gpuPluginResource]; ok {
-		numI915, _ := quantity.AsInt64()
-		if numI915 > 0 {
-			return true
+	for _, pluginResourceName := range []string{i915PluginResource, xePluginResource} {
+		if quantity, ok := node.Status.Capacity[v1.ResourceName(pluginResourceName)]; ok {
+			numGPU, _ := quantity.AsInt64()
+			if numGPU > 0 {
+				return true
+			}
 		}
 	}
 
@@ -345,7 +364,7 @@ func reorderPreferredTilesFirst(tiles []int, preferred []int) []int {
 func getXeLinkedTiles(gpuName string, node *v1.Node) map[int]bool {
 	xeLinkedTiles := map[int]bool{}
 
-	xeLinkLabelValue := node.Labels[xeLinksLabel]
+	xeLinkLabelValue := concatenateSplitLabel(node, xeLinksLabel)
 	lZeroDeviceID := gpuNameToLZeroDeviceID(gpuName, node)
 
 	if lZeroDeviceID == -1 || xeLinkLabelValue == "" {
@@ -356,15 +375,22 @@ func getXeLinkedTiles(gpuName string, node *v1.Node) map[int]bool {
 
 	for _, linkPair := range xeLinkSlice {
 		submatches := xeLinkReg.FindStringSubmatch(linkPair)
-		if len(submatches) == regexXeLinkCount {
-			if submatches[1] == strconv.Itoa(lZeroDeviceID) {
-				tileNumber, err := strconv.Atoi(submatches[2])
-				if err == nil {
-					xeLinkedTiles[tileNumber] = true
-				}
-			}
-		} else {
+		if len(submatches) != regexXeLinkCount {
 			klog.Errorf("Malformed Xe Link label part: %v", linkPair)
+
+			return xeLinkedTiles
+		}
+
+		if submatches[1] == strconv.Itoa(lZeroDeviceID) {
+			tileNumber, err := strconv.Atoi(submatches[2])
+			if err == nil {
+				xeLinkedTiles[tileNumber] = true
+			}
+		} else if submatches[3] == strconv.Itoa(lZeroDeviceID) {
+			tileNumber, err := strconv.Atoi(submatches[4])
+			if err == nil {
+				xeLinkedTiles[tileNumber] = true
+			}
 		}
 	}
 
@@ -379,7 +405,12 @@ type linkInfo struct {
 }
 
 func parseXeLink(link string) (linkInfo, error) {
-	lInfo := linkInfo{}
+	lInfo := linkInfo{
+		lZeroDeviceID:          0,
+		lZeroSubdeviceID:       0,
+		linkedLZeroDeviceID:    0,
+		linkedLZeroSubdeviceID: 0,
+	}
 
 	submatches := xeLinkReg.FindStringSubmatch(link)
 
@@ -407,7 +438,7 @@ func parseXeLink(link string) (linkInfo, error) {
 }
 
 func getXeLinkedGPUInfo(gpuName string, tileIndex int, node *v1.Node) (string, int) {
-	xeLinkLabelValue := node.Labels[xeLinksLabel]
+	xeLinkLabelValue := concatenateSplitLabel(node, xeLinksLabel)
 	lZeroDeviceID := gpuNameToLZeroDeviceID(gpuName, node)
 
 	if lZeroDeviceID == -1 || xeLinkLabelValue == "" {
@@ -434,7 +465,7 @@ func gpuNameToLZeroDeviceID(gpuName string, node *v1.Node) int {
 	gpuNumSlice := numSortedGpuNums(node)
 
 	for i, gpuNum := range gpuNumSlice {
-		if "card"+gpuNum == gpuName {
+		if cardPrefix+gpuNum == gpuName {
 			return i
 		}
 	}
@@ -449,11 +480,11 @@ func lZeroDeviceIDToGpuName(lZeroID int, node *v1.Node) string {
 		return ""
 	}
 
-	return "card" + gpuNumSlice[lZeroID]
+	return cardPrefix + gpuNumSlice[lZeroID]
 }
 
 func numSortedGpuNums(node *v1.Node) []string {
-	gpuNums := node.Labels[gpuNumbersLabel]
+	gpuNums := concatenateSplitLabel(node, gpuNumbersLabel)
 
 	gpuNumSlice := strings.Split(gpuNums, ".")
 
@@ -496,7 +527,7 @@ func convertPodTileAnnotationToCardTileMap(podTileAnnotation string) map[string]
 			}
 
 			// extract card index by moving forward in slice
-			cardIndexStr := cardTileSplit[0][len("card"):]
+			cardIndexStr := cardTileSplit[0][len(cardPrefix):]
 
 			_, err := strconv.ParseInt(cardIndexStr, digitBase, desiredIntBits)
 			if err != nil {

@@ -1,3 +1,6 @@
+// Copyright (C) 2022 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+
 // Package deschedule provides the deschedule strategy. Violation conditions and enforcement behavior are defined here.
 // When a node is violating the deschedule strategy, the enforcer labels it as violating.
 // This label can then be used externally to act on the strategy violation.
@@ -51,7 +54,7 @@ func (d *Strategy) Violated(cache cache.Reader) map[string]interface{} {
 
 				if d.LogicalOperator == "allOf" {
 					if nodeMetricViol[nodeName] == len(d.Rules) {
-						msg := fmt.Sprint(nodeName + " violating all the rules in " + d.StrategyType() + " strategy")
+						msg := nodeName + " violating all the rules in " + d.StrategyType() + " strategy"
 						klog.V(l2).InfoS(msg, "component", "controller")
 
 						violatingNodes[nodeName] = nil
