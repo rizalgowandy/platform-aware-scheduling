@@ -27,12 +27,13 @@ linters:
     - maintidx
     - typecheck
     - gochecknoglobals
-
+    - nosnakecase
+    - depguard
 linters-settings:
   gofmt:
     simplify: true
   gofumpt:
-    lang-version: "1.17"
+    lang-version: "1.21"
   golint:
     min-confidence: 0.9
   govet:
@@ -62,4 +63,8 @@ issues:
         - funlen
         - goimports
         - gofmt
-
+        - dupword
+        - gosec
+    - path: _deepcopy\.go
+      linters:
+        - nolintlint

@@ -1,3 +1,9 @@
+# PROJECT NOT UNDER ACTIVE MANAGEMENT
+This project will no longer be maintained by Intel.  
+Intel has ceased development and contributions including, but not limited to, maintenance, bug fixes, new releases, or updates, to this project.  
+Intel no longer accepts patches to this project.  
+If you have an ongoing need to use this project, are interested in independently developing it, or would like to maintain patches for the open source software community, please create your own fork of this project.  
+
 # GPU Aware Scheduling
 GPU Aware Scheduling (GAS) allows using GPU resources such as memory amount for scheduling decisions in Kubernetes. It is used to optimize scheduling decisions when the POD resource requirements include the use of several GPUs or fragments of GPUs on a node, instead of traditionally mapping a whole GPU to a pod.
 
@@ -16,13 +22,13 @@ The typical use-case which GAS solves can be described with the following imagin
 4) Kubernetes Scheduler, if left to its own decision making, can place all the PODs on this one node with only 2 GPUs, since it only considers the memory amount of 16GB. However to be able to do such a deployment and run the PODs successfully, the last instance would need to allocate the GPU memory from two of the GPUs.
 5) GAS solves this issue by keeping book of the individual GPU memory amount. After two PODs have been deployed on the node, both GPUs have 3GB of free memory left. When GAS sees that the need for memory is 5GB but none of the GPUs in that node have as much (even though combined there is still 6GB left) it will filter out that node from the list of the nodes k8s scheduler proposed. The POD will not be deployed on that node.
 
-GAS tries to be agnostic about resource types. It doesn't try to have an understanding of the meaning of the resources, they are just numbers to it, which it identifies from other Kubernetes extended resources with the prefix "gpu.intel.com/". The only resource treated differently is the GPU-plugin "i915"-resource, which is considered to describe "from how many GPUs the GPU-resources for the POD should be evenly consumed". That is, if each GPU has e.g. capacity of 1000 "gpu.intel.com/millicores", and POD spec has a limit for two (2) "gpu.intel.com/i915" and 2000 "gpu.intel.com/millicores", that POD will consume 1000 millicores from two GPUs, totaling 2000 millicores. After GAS has calculated the resource requirement per GPU by dividing the extended resource numbers with the number of requested "i915", deploying the POD to a node is only allowed if there are enough resources in the node to satisfy fully the per-GPU resource requirement in as many GPUs as requested in "i915" resource. Typical PODs use just one i915 and consume resources from only a single GPU.
+GAS tries to be agnostic about resource types. It doesn't try to have an understanding of the meaning of the resources, they are just numbers to it, which it identifies from other Kubernetes extended resources with the prefix `gpu.intel.com/`. The only resources treated differently is the GPU-plugin `i915` and `xe` resources, which are considered to describe "from how many GPUs the GPU-resources for the POD should be evenly consumed". That is, if each GPU has e.g. capacity of 1000 `gpu.intel.com/millicores", and POD spec has a limit for two (2) `gpu.intel.com/i915` and 2000 "gpu.intel.com/millicores`, that POD will consume 1000 millicores from two GPUs, totaling 2000 millicores. After GAS has calculated the resource requirement per GPU by dividing the extended resource numbers with the number of requested `i915` or `xe`, deploying the POD to a node is only allowed if there are enough resources in the node to satisfy fully the per-GPU resource requirement in as many GPUs as requested in `i915` or `xe` resource. Typical PODs use just one `i915` or `xe` and consume resources from only a single GPU. Note that a Pod must only request either `i915` or `xe` resources, but never both.
 
 GAS heavily utilizes annotations. It itself annotates PODs after making filtering decisions on them, with a precise timestamp at annotation named "gas-ts". The timestamp can then be used for figuring out the time-order of the GAS-made scheduling decision for example during the GPU-plugin resource allocation phase, if the GPU-plugin wants to know the order of GPU-resource consuming POD deploying inside the node. Another annotation which GAS adds is "gas-container-cards". It will have the names of the cards selected for the containers. Containers are separated by "|", and card names are separated by ",". Thus a two-container POD in which both containers use 2 GPUs, could get an annotation "card0,card1|card2,card3". These annotations are then consumed by the Intel GPU device plugin.
 
-Along with the "gas-container-cards" annotation there can be a "gas-container-tiles" annotation. This annotation is created when a container requests tile resources (gpu.intel.com/tiles). The gtX marking for tiles follows the sysfs entries under /sys/class/drm/cardX/gt/ where the "cardX" can be any card in the system. "gas-container-tiles" annotation marks the card+tile combos assigned to each container. For example a two container pod's annotation could be "card0:gt0+gt1|card0:gt2+gt3" where each container gets two tiles from the same GPU. The tile annotation is then converted to corresponding environment variables by the GPU plugin.
+Along with the "gas-container-cards" annotation there can be a "gas-container-tiles" annotation. This annotation is created when a container requests tile resources (`gpu.intel.com/tiles`). The gtX marking for tiles follows the sysfs entries under `/sys/class/drm/cardX/gt/` where the `cardX` can be any card in the system. "gas-container-tiles" annotation marks the card+tile combos assigned to each container. For example a two container pod's annotation could be "card0:gt0+gt1|card0:gt2+gt3" where each container gets two tiles from the same GPU. The tile annotation is then converted to corresponding environment variables by the GPU plugin.
 
-GAS also expects labels to be in place for the nodes, in order to be able to keep book of the cluster GPU resource status. Nodes with GPUs shall be labeled with label name "gpu.intel.com/cards" and value shall be in form "card0.card1.card2.card3"... where the card names match with the intel GPUs which are currently found under /sys/class/drm folder, and the dot serves as separator. GAS expects all GPUs of the same node to be homogeneous in their resource capacity, and calculates the GPU extended resource capacity as evenly distributed to the GPUs listed by that label.
+GAS also expects labels to be in place for the nodes, in order to be able to keep book of the cluster GPU resource status. Nodes with GPUs shall be labeled with label name `gpu.intel.com/cards` and value shall be in form "card0.card1.card2.card3"... where the card names match with the intel GPUs which are currently found under `/sys/class/drm` folder, and the dot serves as separator. GAS expects all GPUs of the same node to be homogeneous in their resource capacity, and calculates the GPU extended resource capacity as evenly distributed to the GPUs listed by that label.
 
 ## Usage with NFD and the GPU-plugin
 A worked example for GAS is available [here](docs/usage.md)
@@ -31,12 +37,16 @@ A worked example for GAS is available [here](docs/usage.md)
 The deploy folder has all of the yaml files necessary to get GPU Aware Scheduling running in a Kubernetes cluster. Some additional steps are required to configure the generic scheduler.
 
 #### Extender configuration
-You should follow extender configuration instructions from the
+Recommended way: use the [configurator go tool](../configurator/README.md) to do the configuration.
+
+Alternatively you can use the `configure-scheduler.sh` script and instructions from the
 [Telemetry Aware Scheduling](../telemetry-aware-scheduling/README.md#Extender-configuration) and
 adapt those instructions to use GPU Aware Scheduling configurations, which can be found in the
 [deploy/extender-configuration](deploy/extender-configuration) folder.
 
 #### Deploy GAS
+Note: if you used the configurator instructions, you are probably already done and you can continue verifying the setup.
+
 GAS has been tested with Kubernetes 1.24. A yaml file for GAS is contained in the deploy folder
 along with its service and RBAC roles and permissions.
 
@@ -49,24 +59,24 @@ The secret can be created with command:
 kubectl create secret tls extender-secret --cert /etc/kubernetes/<PATH_TO_CERT> --key /etc/kubernetes/<PATH_TO_KEY>
 ```
 
-Replace <PATH_TO_CERT> and <PATH_TO_KEY> with the names your cluster has, here is the same comand
+Replace <PATH_TO_CERT> and <PATH_TO_KEY> with the names your cluster has, here is the same command
  with the default values:
 
 ```bash
 kubectl create secret tls extender-secret --cert /etc/kubernetes/pki/ca.crt --key /etc/kubernetes/pki/ca.key
 ```
 
-Note, you might need privileges to access default location of these files, use `sudo <same command` then in this case.
+Note, you might need privileges to access default location of these files, use `sudo <same command>` then in this case.
 
-The "deploy"-folder has the necessary scripts for deploying GAS. You can simply deploy by running:
+The `deploy`-folder has the necessary scripts for deploying GAS. You can simply deploy by running:
 
 ```bash
 kubectl apply -f deploy/
 ```
 
-After this is run GAS should be operable in the cluster and should be visible after running ``kubectl get pods``
+After this is run GAS should be operable in the cluster and should be visible after running `kubectl get pods`.
 
-Remember to run the configure-scheduler.sh script, or perform similar actions in your cluster if the script does not work in your environment directly.
+Remember to run the `configure-scheduler.sh` script, or perform similar actions in your cluster if the script does not work in your environment directly.
 
 #### Build GAS locally
 
@@ -99,6 +109,8 @@ name |type | description| usage | default|
 |enableAllowlist| bool | enable POD-annotation based GPU allowlist feature | --enableAllowlist| false
 |enableDenylist| bool | enable POD-annotation based GPU denylist feature | --enableDenylist| false
 |balancedResource| string | enable named resource balancing between GPUs | --balancedResource| ""
+|burst| int | burst value to use with kube client | --burst| 10
+|qps| int | qps value to use with kube client | --qps| 5
 
 Some features are based on the labels put onto pods, for full features list see [usage doc](docs/usage.md)
 
@@ -135,11 +147,14 @@ spec:
 ```
 
 There is one change to the yaml here:
-- A resources/limits entry requesting the resource gpu.intel.com/i915 will make GAS take part in scheduling such deployment. If this resource is not requested, GAS will not be used during scheduling of the pod.
+- A resources/limits entry requesting the resource `gpu.intel.com/i915` will make GAS take part in scheduling such deployment. If this resource is not requested, GAS will not be used during scheduling of the pod. Note: the `gpu.intel.com/xe` resource is also supported and Pods using it will also be scheduled through GAS.
 
 ### Unsupported use-cases
 
 Topology Manager and GAS card selections can conflict. Using both at the same time is not supported. You may use topology manager without GAS.
+Using [CRI-RM](https://github.com/intel/cri-resource-manager)
+[topology aware policy](https://intel.github.io/cri-resource-manager/stable/docs/policy/topology-aware.html#topology-aware-policy)
+is encouraged instead, it works together with GAS.
 
 Selecting deployment node directly in POD spec [nodeName](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodename) bypasses the scheduler and therefore also GAS. This is obviously a use-case which can't be supported by GAS, so don't use that mechanism, if you want to run the scheduler and GAS.
 

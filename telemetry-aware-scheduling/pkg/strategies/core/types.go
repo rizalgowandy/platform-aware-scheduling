@@ -1,3 +1,6 @@
+// Copyright (C) 2022 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+
 // core pkg contains the behaviour shared between all Violable and Enforceable strategies from a Telemetry Policy.
 
 package core
@@ -12,9 +15,9 @@ import (
 type Interface interface {
 	Violated(cache cache.Reader) map[string]interface{}
 	StrategyType() string
-	Equals(Interface) bool
+	Equals(obj Interface) bool
 	GetPolicyName() string
-	SetPolicyName(string)
+	SetPolicyName(policyName string)
 }
 
 // Enforceable enforce strategies and clean up after strategies are removed.
@@ -27,8 +30,8 @@ type Enforceable interface {
 type Enforcer interface {
 	RegisterStrategyType(strategy Interface)
 	UnregisterStrategyType(strategy Interface)
-	IsRegistered(string) bool
-	AddStrategy(Interface, string)
-	RemoveStrategy(Interface, string)
-	EnforceRegisteredStrategies(cache.Reader, time.Ticker)
+	IsRegistered(strategy string) bool
+	AddStrategy(strategy Interface, strategyType string)
+	RemoveStrategy(strategy Interface, strategyType string)
+	EnforceRegisteredStrategies(cache cache.Reader, ticker time.Ticker)
 }

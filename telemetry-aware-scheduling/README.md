@@ -1,3 +1,9 @@
+# PROJECT NOT UNDER ACTIVE MANAGEMENT
+This project will no longer be maintained by Intel.  
+Intel has ceased development and contributions including, but not limited to, maintenance, bug fixes, new releases, or updates, to this project.  
+Intel no longer accepts patches to this project.  
+If you have an ongoing need to use this project, are interested in independently developing it, or would like to maintain patches for the open source software community, please create your own fork of this project.  
+
 # Telemetry Aware Scheduling
 Telemetry Aware Scheduling (TAS) makes telemetry data available to scheduling and descheduling decisions in Kubernetes. Through a user defined policy, TAS enables rule based decisions on pod placement powered by up to date platform metrics. Policies can be applied on a workload by workload basis - allowing the right indicators to be used to place the right pod.
 
@@ -46,6 +52,8 @@ If this pipeline isn't set up, and node level metrics aren't exposed through it,
 
 #### Extender configuration
 Note: a shell script that shows these steps can be found [here](deploy/extender-configuration). This script should be seen as a guide only, and will not work on most Kubernetes installations.
+
+Note: [Configurator go tool](../configurator/README.md) does the same tasks as the script but provides backups, dry-run option and shows what modifications will be / were done.
 <details>
 <summary>Instructions for non-root <a href="https://github.com/intel/platform-aware-scheduling/blob/master/telemetry-aware-scheduling/deploy/extender-configuration/configure-scheduler.sh">configure-scheduler.sh</a> script runners</summary>
 
@@ -62,7 +70,7 @@ kind: KubeSchedulerConfiguration
 clientConnection:
   kubeconfig: /etc/kubernetes/scheduler.conf
 extenders:
-  - urlPrefix: "https://tas-service.default.svc.cluster.local:9001"
+  - urlPrefix: "https://tas-service.telemetry-aware-scheduling.svc.cluster.local:9001"
     prioritizeVerb: "scheduler/prioritize"
     filterVerb: "scheduler/filter"
     weight: 1
@@ -91,14 +99,19 @@ Telemetry Aware Scheduling uses go modules. It requires Go 1.16+ with modules en
 TAS current version has been tested with the recent Kubernetes version at the released date. It maintains support to the three most recent K8s versions. 
 TAS was tested on Intel® Server Boards S2600WF and S2600WT-Based Systems.
 
-A yaml file for TAS is contained in the deploy folder along with its service and RBAC roles and permissions.
+A yaml file for TAS is contained in the deploy folder along with its service and RBAC roles and permissions. 
+The TAS components all reside in a custom namespace: **telemetry-aware-scheduling**, which means this namespace needs to be created first:
+
+``
+kubectl create namespace telemetry-aware-scheduling
+``
 
 A secret called extender-secret will need to be created with the cert and key for the TLS endpoint. TAS will not deploy if there is no secret available with the given deployment file.
 
 The secret can be created with:
 
 ``
-kubectl create secret tls extender-secret --cert /etc/kubernetes/<PATH_TO_CERT> --key /etc/kubernetes/<PATH_TO_KEY> 
+kubectl create secret tls extender-secret --cert /etc/kubernetes/<PATH_TO_CERT> --key /etc/kubernetes/<PATH_TO_KEY> -n telemetry-aware-scheduling
 ``
 <details>
 <summary>Cert selection tip for <a href="https://github.com/intel/platform-aware-scheduling/blob/24f25a38613e326b4830f5e647211df16060fe70/telemetry-aware-scheduling/deploy/extender-configuration/configure-scheduler.sh#L136-L137">configure-scheduler.sh</a> users</summary>
@@ -106,6 +119,13 @@ kubectl create secret tls extender-secret --cert /etc/kubernetes/<PATH_TO_CERT> 
 >The `configure-scheduler.sh` script is hard-coded to use `/etc/kubernetes/pki/ca.key` and `/etc/kubernetes/pki/ca.crt`. The cert for the secret
 must match the scheduler configuration, so use those files. If you instead want to use your own cert, you need to configure the scheduler to match.
 </details>&nbsp;
+
+Note: From K8s v24+ the control-plane node labels have changed, from `node-role.kubernetes.io/master` to `node-role.kubernetes.io/control-plane`.
+This change affects how TAS gets deployed as the toleration and nodeAffinity rules have to be changed accordingly.
+In order to provide support for future versions of K8s, both of these rules have been changed to make use of the `node-role.kubernetes.io/control-plane`
+label [file](https://github.com/intel/platform-aware-scheduling/blob/master/telemetry-aware-scheduling/deploy/tas-deployment.yaml#L51-L62).
+If you are running a version of Kubernetes **older that v1.24**, you will need to change both rules in the file above to use
+`node-role.kubernetes.io/master`.  To see how this can be done automatically please see [this shell script](deploy/extender-configuration/configure-scheduler.sh)
 
 In order to deploy run:
 
@@ -140,7 +160,7 @@ apiVersion: telemetry.intel.com/v1alpha1
 kind: TASPolicy
 metadata:
   name: scheduling-policy
-  namespace: default
+  namespace: health-metric-demo
 spec:
   strategies:
     deschedule:
@@ -207,7 +227,7 @@ apiVersion: telemetry.intel.com/v1alpha1
 kind: TASPolicy
 metadata:
   name: multirules-policy
-  namespace: default
+  namespace: health-metric-demo
 spec:
   strategies:
     deschedule:
@@ -241,7 +261,7 @@ The below flags can be passed to the binary at run time.
 #### TAS Scheduler Extender
 name |type | description| usage | default|
 -----|------|-----|-------|-----|
-|kubeConfig| string |location of kubernetes configuration file | -kubeConfig /root/filename|~/.kube/config
+|kubeConfig| string |location of kubernetes configuration file | -kubeConfig $PATH_TO_KUBE_CONFIG/config|$HOME/.kube/config
 |syncPeriod|duration string| interval between refresh of telemetry data|-syncPeriod 1m| 1s
 |port| int | port number on which the scheduler extender will listen| -port 32000 | 9001
 |cert| string | location of the cert file for the TLS endpoint | --cert=/root/cert.txt| /etc/kubernetes/pki/ca.crt
@@ -257,6 +277,7 @@ For example,  in a deployment file:
 apiVersion: apps/v1 
 kind: Deployment
 metadata:
+  namespace: health-metric-demo
   name: demo-app
   labels:
     app: demo

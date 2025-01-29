@@ -1,8 +1,8 @@
-apiVersion: autoscaling/v2beta2
+apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: power-autoscaler
-  namespace: default
+  namespace: power-demo
 spec:
   scaleTargetRef:
     apiVersion: apps/v1

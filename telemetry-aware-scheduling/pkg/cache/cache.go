@@ -1,3 +1,6 @@
+// Copyright (C) 2022 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+
 package cache
 
 type requestType uint
@@ -11,9 +14,9 @@ const (
 
 // Interface contains the baseline behaviour for a cache.
 type Interface interface {
-	add(string, interface{})
-	delete(string)
-	read(string) interface{}
+	add(key string, payload interface{})
+	delete(key string)
+	read(key string) interface{}
 }
 
 // concurrentCache is a type that holds information only accessible through a channel making it concurrent safe.

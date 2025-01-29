@@ -1,4 +1,7 @@
 # Health Metric Demo
+
+**NOTICE: This is a demo and it is not ready for production usage.**
+
 This document describes the implementation of a health metric telemetry policy using Telemetry Aware Scheduling.
 It will show the full process from applying the correct policy to descheduling based on platform metrics.
 
@@ -42,6 +45,12 @@ sudo kubectl get --raw "/apis/custom.metrics.k8s.io/v1beta1/nodes/*/health_metri
 ```
 It may take a couple of minutes for the metric to be initially scraped.
 
+## Setting the workspace
+
+``
+kubectl create namespace health-metric-demo
+``
+
 ## Declare a Telemetry Policy
 A Telemetry Policy should be declared using kubectl apply -f <NAME_OF_FILE>. Our [demo health metric policy](../deploy/health-metric-demo/health-policy.yaml) is:
 
@@ -50,7 +59,7 @@ apiVersion: telemetry.intel.com/v1alpha1
 kind: TASPolicy
 metadata:
   name: demo-policy
-  namespace: default
+  namespace: health-metric-demo
 spec:
   strategies:
     deschedule:
@@ -87,6 +96,7 @@ The pod spec here is:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  namespace: health-metric-demo
   name: demo-app
   labels:
     app: demo
@@ -141,8 +151,15 @@ This should produce extender logs like:
 ```
 We can see that only two of our three nodes was deemed suitable because it didn't break the dontschedule rule declared in our Telemetry Scheduling Policy.
 
-### Deschedule 
-Descheduler can be installed as a binary with the instructions from the [project repo](https://github.com/kubernetes-sigs/descheduler.) A policy file in the health-metric-demo should be passed to the descheduler as a flag.
+### Deschedule
+Descheduler can be installed as a binary with the instructions from the [project repo](https://github.com/kubernetes-sigs/descheduler). This demo has been tested with the following Descheduler versions:
+1. **v0.23.1** and older
+2. **v0.27.1**
+3. **v0.28.1**
+
+Telemetry Aware Scheduler and the following Descheduler versions **v0.24.x** to **v0.26.x** seem to have compatibility issues (https://github.com/intel/platform-aware-scheduling/issues/90#issuecomment-1169012485 links to an issue cut to the Descheduler project team). The problem seems to have been fixed in Descheduler **v0.27.1**.
+
+A policy file in the health-metric-demo should be passed to the descheduler as a flag.
 
 Assuming descheduler is on the $PATH the command to run it is:
 
@@ -217,3 +234,29 @@ sudo kubectl get --raw "/apis/custom.metrics.k8s.io/v1beta1/" | jq . | grep node
 ```
 
 If this command doesn't return multiple metrics with paths like **/nodes/*/<METRIC_NAME> it's likely there is some issue with the scrape configuration for the custom metrics api. More info can be seen at [custom-metrics.md](custom-metrics.md)
+
+### Descheduler
+
+If the pods are not moving to the non-violating node when running the descheduler comment, please check the descheduler logs for any errors.
+
+#### Insufficient telemetry/scheduling
+
+Example error:
+````
+I0629 17:54:44.063789       1 node.go:168] "Pod does not fit on node" pod="labeling-demo/demo-app-label-6b9cc98bf4-rd9mx" node="NODE-A"
+I0629 17:54:44.063807       1 node.go:170] "insufficient telemetry/scheduling"
+````
+To address this error we need to patch all nodes in the cluster by adding the missing resource. To do so:
+
+1. On the control plane node, in a new window run:
+
+````
+kubectl proxy
+````
+2. On the control plane node, for each node run:
+
+````
+curl --header "Content-Type: application/json-patch+json" --request PATCH --data '[{"op": "add", "path": "/status/capacity/telemetry~1scheduling", "value": "10"}]' http://localhost:8001/api/v1/nodes/$NODE_NAME/status
+````
+
+**[NOTE]** The value chosen for this example is random. The only constraints are: the value has to be a positive integer (> 0) and high enough to be able to fulfill the resource specs. More details [here](https://github.com/intel/platform-aware-scheduling/tree/master/telemetry-aware-scheduling#linking-a-workload-to-a-policy)
